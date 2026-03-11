@@ -13,7 +13,3 @@ env/
 __pycache__/
 *.pyc
 *.pyo
-
-# Данные (большие файлы)
-cs-training.csv
-cs-test.csv
