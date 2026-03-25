@@ -7,11 +7,11 @@ import numpy as np
 import joblib
 import json
 import math
+import hashlib
 
 
 st.set_page_config(
     page_title="Кредитный скоринг",
-    page_icon="💳",
     layout="centered",
     initial_sidebar_state="expanded"
 )
@@ -19,56 +19,230 @@ st.set_page_config(
 # Кастомные стили
 st.markdown("""
 <style>
+    :root {
+        --bg: #dfe7f1;
+        --surface: #f2f6fc;
+        --text-primary: #122033;
+        --text-secondary: #4d5d73;
+        --accent: #0f62fe;
+        --accent-2: #16a085;
+        --success-a: #0b7a5a;
+        --success-b: #20c997;
+        --warning-a: #c17d00;
+        --warning-b: #f2a900;
+        --danger-a: #9f1f2f;
+        --danger-b: #e84a5f;
+    }
+    .stApp {
+        background:
+            radial-gradient(circle at 90% -10%, #c8d9fa 0%, rgba(200, 217, 250, 0) 35%),
+            radial-gradient(circle at -10% 10%, #c5efe4 0%, rgba(197, 239, 228, 0) 30%),
+            var(--bg);
+        font-family: "Manrope", "Segoe UI", "Trebuchet MS", sans-serif;
+        color: var(--text-primary);
+    }
+    .main .block-container {
+        background: rgba(255, 255, 255, 0.62);
+        border: 1px solid rgba(18, 32, 51, 0.08);
+        border-radius: 18px;
+        padding: 1.2rem 1.2rem 1rem 1.2rem;
+    }
     .main-header {
-        font-size: 2.5rem;
-        font-weight: 700;
+        font-size: 2.6rem;
+        font-weight: 800;
+        letter-spacing: 0.01em;
         text-align: center;
-        color: #1E3A5F;
+        color: var(--text-primary);
         margin-bottom: 0.5rem;
     }
     .sub-header {
         font-size: 1.1rem;
         text-align: center;
-        color: #666;
+        color: var(--text-secondary);
         margin-bottom: 2rem;
     }
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f1f35 0%, #193355 100%);
+    }
+    section[data-testid="stSidebar"] * {
+        color: #f4f8ff !important;
+    }
+    section[data-testid="stSidebar"] hr {
+        border-color: rgba(255, 255, 255, 0.2);
+    }
     .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(130deg, #1a2f4d 0%, #21487b 100%);
         padding: 1.5rem;
         border-radius: 1rem;
+        box-shadow: 0 12px 28px rgba(20, 36, 58, 0.16);
         color: white;
         text-align: center;
         margin: 0.5rem 0;
     }
     .risk-low {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        background: linear-gradient(135deg, var(--success-a) 0%, var(--success-b) 100%);
     }
     .risk-medium {
-        background: linear-gradient(135deg, #F2994A 0%, #F2C94C 100%);
+        background: linear-gradient(135deg, var(--warning-a) 0%, var(--warning-b) 100%);
+        color: #1a1f2b;
     }
     .risk-high {
-        background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+        background: linear-gradient(135deg, var(--danger-a) 0%, var(--danger-b) 100%);
     }
     .info-box {
-        background-color: #f0f2f6;
+        background-color: #eef4ff;
         padding: 1rem;
         border-radius: 0.5rem;
-        border-left: 4px solid #667eea;
+        border-left: 4px solid var(--accent);
         margin: 1rem 0;
     }
     .param-help {
-        background-color: #e8f4fd;
+        background-color: #ecfff8;
         padding: 0.8rem;
         border-radius: 0.5rem;
-        border-left: 3px solid #4C9BE8;
+        border-left: 3px solid var(--accent-2);
         margin: 0.5rem 0;
         font-size: 0.9rem;
     }
+    div[data-testid="stForm"] {
+        background: var(--surface);
+        border-radius: 16px;
+        padding: 1rem 1.1rem 0.6rem 1.1rem;
+        border: 1px solid #dce5f0;
+        box-shadow: 0 10px 20px rgba(18, 32, 51, 0.06);
+    }
+    div[data-testid="stForm"] h4 {
+        color: var(--text-primary);
+    }
+    div[data-testid="stForm"] p {
+        color: var(--text-secondary);
+    }
+    div[data-testid="stForm"] button[kind="primary"] {
+        background: linear-gradient(90deg, #0f62fe 0%, #1e88e5 100%);
+        border: none;
+        border-radius: 10px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+    }
+    div[data-testid="stForm"] button[kind="primary"]:hover {
+        filter: brightness(1.05);
+    }
     .stProgress > div > div > div > div {
-        background: linear-gradient(90deg, #11998e 0%, #38ef7d 50%, #F2994A 75%, #eb3349 100%);
+        background: linear-gradient(90deg, #20c997 0%, #0f62fe 45%, #f2a900 75%, #e84a5f 100%);
     }
 </style>
 """, unsafe_allow_html=True)
+
+
+USERS_FILE = "users.json"
+
+
+def load_users() -> dict:
+    """Читает пользователей из JSON или создаёт пустую структуру."""
+    try:
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get("users"), list):
+            return data
+    except FileNotFoundError:
+        pass
+    except json.JSONDecodeError:
+        pass
+    return {"users": []}
+
+
+def save_users(data: dict) -> None:
+    """Сохраняет пользователей в JSON."""
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def hash_password(password: str) -> str:
+    """Возвращает SHA-256 хеш пароля."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def find_user(users_data: dict, login: str) -> dict | None:
+    """Ищет пользователя по логину."""
+    for user in users_data.get("users", []):
+        if user.get("login") == login:
+            return user
+    return None
+
+
+def register_user(login: str, password: str) -> tuple[bool, str]:
+    """Создаёт нового пользователя."""
+    login = login.strip()
+    if len(login) < 3:
+        return False, "Логин должен быть не короче 3 символов"
+    if len(password) < 6:
+        return False, "Пароль должен быть не короче 6 символов"
+
+    users_data = load_users()
+    if find_user(users_data, login):
+        return False, "Пользователь с таким логином уже существует"
+
+    users_data["users"].append({
+        "login": login,
+        "password_hash": hash_password(password)
+    })
+    save_users(users_data)
+    return True, "Аккаунт создан"
+
+
+def authenticate_user(login: str, password: str) -> bool:
+    """Проверяет логин и пароль пользователя."""
+    users_data = load_users()
+    user = find_user(users_data, login.strip())
+    if not user:
+        return False
+    return user.get("password_hash") == hash_password(password)
+
+
+def ensure_auth_state() -> None:
+    """Инициализирует состояние авторизации."""
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    if "current_user" not in st.session_state:
+        st.session_state.current_user = ""
+
+
+def render_auth_screen() -> None:
+    """Рендерит формы входа и регистрации."""
+    st.markdown('<h1 class="main-header">Кредитный скоринг</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Вход в демо-приложение</p>', unsafe_allow_html=True)
+
+    login_tab, register_tab = st.tabs(["Вход", "Регистрация"])
+
+    with login_tab:
+        with st.form("login_form"):
+            login = st.text_input("Логин")
+            password = st.text_input("Пароль", type="password")
+            submit_login = st.form_submit_button("Войти", use_container_width=True, type="primary")
+
+            if submit_login:
+                if authenticate_user(login, password):
+                    st.session_state.authenticated = True
+                    st.session_state.current_user = login.strip()
+                    st.rerun()
+                else:
+                    st.error("Неверный логин или пароль")
+
+    with register_tab:
+        with st.form("register_form"):
+            new_login = st.text_input("Новый логин")
+            new_password = st.text_input("Новый пароль", type="password")
+            submit_register = st.form_submit_button("Создать аккаунт", use_container_width=True)
+
+            if submit_register:
+                ok, message = register_user(new_login, new_password)
+                if ok:
+                    st.session_state.authenticated = True
+                    st.session_state.current_user = new_login.strip()
+                    st.success("Аккаунт создан, вход выполнен")
+                    st.rerun()
+                else:
+                    st.error(message)
 
 
 # Загрузка модели и артефактов
@@ -198,11 +372,11 @@ def calculate_credit_score(prob_default: float, base_score: int = 650, pdo: floa
 def get_risk_level(prob_default: float) -> tuple:
     """Определяет уровень риска и цвет."""
     if prob_default < 0.1:
-        return "🟢 Низкий", "risk-low", "Одобрить"
+        return "Низкий", "risk-low", "Одобрить"
     elif prob_default < 0.3:
-        return "🟡 Средний", "risk-medium", "Требуется дополнительная проверка"
+        return "Средний", "risk-medium", "Требуется дополнительная проверка"
     else:
-        return "🔴 Высокий", "risk-high", "Отказать"
+        return "Высокий", "risk-high", "Отказать"
 
 
 def calculate_max_loan(monthly_income: float, current_payments: float, 
@@ -250,12 +424,26 @@ def calculate_max_loan(monthly_income: float, current_payments: float,
 # Основной интерфейс
 
 def main():
-    st.markdown('<h1 class="main-header">💳 Кредитный скоринг</h1>', unsafe_allow_html=True)
+    ensure_auth_state()
+
+    if not st.session_state.authenticated:
+        render_auth_screen()
+        st.stop()
+
+    st.markdown('<h1 class="main-header">Кредитный скоринг</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Узнайте ваш кредитный рейтинг за 1 минуту</p>', unsafe_allow_html=True)
     
     # Сайдбар с информацией
     with st.sidebar:
-        st.markdown("### ℹ️ Как это работает?")
+        st.markdown("### Профиль")
+        st.markdown(f"Пользователь: **{st.session_state.current_user}**")
+        if st.button("Выйти", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.current_user = ""
+            st.rerun()
+
+        st.markdown("---")
+        st.markdown("### Как это работает")
         st.markdown("""
         1. **Заполните форму** — укажите ваши реальные данные
         2. **Нажмите кнопку** — система проанализирует информацию
@@ -263,7 +451,7 @@ def main():
         
         ---
         
-        ### 📊 Что означает скор?
+        ### Что означает скор
         
         | Скор | Оценка |
         |------|--------|
@@ -275,7 +463,7 @@ def main():
         
         ---
         
-        ### 🔒 Конфиденциальность
+        ### Конфиденциальность
         
         Ваши данные **не сохраняются** и используются 
         только для расчёта прямо сейчас.
@@ -286,7 +474,7 @@ def main():
         model, woe_mapping, bin_edges, feature_cols, scorecard = load_model()
     except FileNotFoundError as e:
         st.error("""
-        ⚠️ **Файлы модели не найдены!**
+        **Файлы модели не найдены!**
         
         Пожалуйста, выполните ячейку сохранения модели в Jupyter Notebook:
         - `model.pkl`
@@ -301,7 +489,7 @@ def main():
     # Форма ввода данных
     # ─────────────────────────────────────────────────────────────────────────
     
-    st.markdown("### 📋 Данные клиента")
+    st.markdown("### Данные клиента")
     st.caption("Введите ваши данные — система автоматически рассчитает кредитный рейтинг")
     
     with st.form("scoring_form"):
@@ -309,10 +497,10 @@ def main():
         # ═══════════════════════════════════════════════════════════════════
         # БЛОК 1: Персональные данные
         # ═══════════════════════════════════════════════════════════════════
-        st.markdown("#### 👤 Персональные данные")
+        st.markdown("#### Персональные данные")
         
         age = st.slider(
-            "🎂 Ваш возраст",
+            "Ваш возраст",
             min_value=18,
             max_value=88,
             value=35
@@ -322,14 +510,14 @@ def main():
         # БЛОК 2: Доходы
         # ═══════════════════════════════════════════════════════════════════
         st.markdown("---")
-        st.markdown("#### 💰 Ваши ежемесячные доходы")
+        st.markdown("#### Ваши ежемесячные доходы")
         st.caption("Укажите все источники дохода (до вычета налогов)")
         
         col1, col2 = st.columns(2)
         
         with col1:
             salary = st.number_input(
-                "💼 Зарплата",
+                "Зарплата",
                 min_value=0,
                 max_value=10_000_000,
                 value=50000,
@@ -339,7 +527,7 @@ def main():
         
         with col2:
             other_income = st.number_input(
-                "📈 Дополнительный доход",
+                "Дополнительный доход",
                 min_value=0,
                 max_value=10_000_000,
                 value=0,
@@ -350,13 +538,13 @@ def main():
         # Показываем итоговый доход
         total_income = salary + other_income
         if total_income > 0:
-            st.info(f"📊 **Общий доход:** {total_income:,}₸ в месяц".replace(",", " "))
+            st.info(f"**Общий доход:** {total_income:,}₸ в месяц".replace(",", " "))
         
         # ═══════════════════════════════════════════════════════════════════
         # БЛОК 3: Кредитная нагрузка
         # ═══════════════════════════════════════════════════════════════════
         st.markdown("---")
-        st.markdown("#### 💳 Ваши кредиты и карты")
+        st.markdown("#### Ваши кредиты и карты")
         
         col1, col2 = st.columns(2)
         
@@ -377,11 +565,11 @@ def main():
             if total_income > 0:
                 debt_ratio = monthly_payments / total_income
                 if debt_ratio < 0.3:
-                    st.success(f"✅ Нагрузка: {debt_ratio*100:.0f}% от дохода — это хорошо!")
+                    st.success(f"Нагрузка: {debt_ratio*100:.0f}% от дохода — это хорошо")
                 elif debt_ratio < 0.5:
-                    st.warning(f"⚠️ Нагрузка: {debt_ratio*100:.0f}% от дохода — умеренно")
+                    st.warning(f"Нагрузка: {debt_ratio*100:.0f}% от дохода — умеренно")
                 else:
-                    st.error(f"❌ Нагрузка: {debt_ratio*100:.0f}% от дохода — очень высокая!")
+                    st.error(f"Нагрузка: {debt_ratio*100:.0f}% от дохода — очень высокая")
             else:
                 debt_ratio = 0.0
         
@@ -410,22 +598,22 @@ def main():
             if card_limit > 0:
                 revolving_utilization = card_debt / card_limit
                 if revolving_utilization <= 0.3:
-                    st.success(f"✅ Использовано {revolving_utilization*100:.0f}% лимита — отлично!")
+                    st.success(f"Использовано {revolving_utilization*100:.0f}% лимита — отлично")
                 elif revolving_utilization <= 0.7:
-                    st.warning(f"⚠️ Использовано {revolving_utilization*100:.0f}% лимита")
+                    st.warning(f"Использовано {revolving_utilization*100:.0f}% лимита")
                 elif revolving_utilization <= 1.0:
-                    st.error(f"❌ Использовано {revolving_utilization*100:.0f}% лимита — много!")
+                    st.error(f"Использовано {revolving_utilization*100:.0f}% лимита — много")
                 else:
-                    st.error(f"🚨 Превышение лимита! ({revolving_utilization*100:.0f}%)")
+                    st.error(f"Превышение лимита ({revolving_utilization*100:.0f}%)")
             else:
                 revolving_utilization = 0.0
-                st.info("💡 Нет кредитных карт")
+                st.info("Кредитные карты не указаны")
         
         # ═══════════════════════════════════════════════════════════════════
         # БЛОК 4: Кредитная история
         # ═══════════════════════════════════════════════════════════════════
         st.markdown("---")
-        st.markdown("#### 📅 Кредитная история (за последние 2 года)")
+        st.markdown("#### Кредитная история (за последние 2 года)")
         st.caption("Были ли у вас просрочки по платежам?")
         
         col1, col2, col3 = st.columns(3)
@@ -457,16 +645,16 @@ def main():
         # Предупреждение о просрочках
         total_late = times_30_59_late + times_60_89_late + times_90_late
         if total_late == 0:
-            st.success("✅ Отличная кредитная история — просрочек нет!")
+            st.success("Отличная кредитная история: просрочек нет")
         elif total_late <= 2:
-            st.warning(f"⚠️ Найдено {total_late} просрочек — это снизит рейтинг")
+            st.warning(f"Найдено {total_late} просрочек — это снизит рейтинг")
         else:
-            st.error(f"❌ Найдено {total_late} просрочек — серьёзно влияет на рейтинг")
+            st.error(f"Найдено {total_late} просрочек — серьёзно влияет на рейтинг")
         
         st.markdown("---")
         
         submitted = st.form_submit_button(
-            "🔍 Рассчитать кредитный рейтинг",
+            "Рассчитать кредитный рейтинг",
             use_container_width=True,
             type="primary"
         )
@@ -499,7 +687,7 @@ def main():
             risk_level, risk_class, decision = get_risk_level(prob_default)
         
         st.markdown("---")
-        st.markdown("### 📊 Результаты оценки")
+        st.markdown("### Результаты оценки")
         
         # Три колонки с метриками
         col1, col2, col3 = st.columns(3)
@@ -522,16 +710,15 @@ def main():
             """, unsafe_allow_html=True)
         
         with col3:
-            decision_emoji = "✅" if "Одобрить" in decision else ("⚠️" if "проверка" in decision else "❌")
             st.markdown(f"""
             <div class="metric-card {'risk-low' if 'Одобрить' in decision else ('risk-medium' if 'проверка' in decision else 'risk-high')}">
                 <div style="font-size: 0.9rem; opacity: 0.9;">Решение</div>
-                <div style="font-size: 1.5rem; font-weight: 700;">{decision_emoji} {decision}</div>
+                <div style="font-size: 1.5rem; font-weight: 700;">{decision}</div>
             </div>
             """, unsafe_allow_html=True)
         
         # Вероятность дефолта с прогресс-баром
-        st.markdown("#### 📈 Вероятность дефолта")
+        st.markdown("#### Вероятность дефолта")
         st.progress(min(prob_default, 1.0))
         st.markdown(f"**{prob_default * 100:.1f}%** — вероятность невозврата кредита в течение 2 лет")
         
@@ -539,7 +726,7 @@ def main():
         # Расчёт рекомендуемой суммы кредита
         # ═══════════════════════════════════════════════════════════════════
         st.markdown("---")
-        st.markdown("#### 💰 Какой кредит вы можете взять?")
+        st.markdown("#### Какой кредит вы можете взять")
         st.caption("Ставка 20% годовых")
         
         # Функция для расчёта платежа по кредиту
@@ -574,7 +761,7 @@ def main():
         # Проверяем доступность кредита
         if any(v["available"] for v in loan_variants):
             # Таблица с комфортными суммами
-            st.markdown("##### 🟢 Комфортный кредит (нагрузка до 40%)")
+            st.markdown("##### Комфортный кредит (нагрузка до 40%)")
             
             cols = st.columns(3)
             for i, v in enumerate(loan_variants):
@@ -596,7 +783,7 @@ def main():
                         """, unsafe_allow_html=True)
             
             # Таблица с максимальными суммами
-            st.markdown("##### 🟡 Максимальный кредит (нагрузка до 50%)")
+            st.markdown("##### Максимальный кредит (нагрузка до 50%)")
             
             cols = st.columns(3)
             for i, v in enumerate(loan_variants):
@@ -620,7 +807,7 @@ def main():
             # Пояснение
             available_payment = monthly_income * 0.50 - monthly_payments
             st.info(f"""
-            📊 **Как это работает:**  
+            **Как это работает:**  
             - Ваш доход: **{monthly_income:,}₸/мес**  
             - Текущие платежи по кредитам: **{monthly_payments:,}₸/мес** ({debt_ratio*100:.0f}% от дохода)  
             - Свободно для нового кредита: **{max(0, available_payment):,.0f}₸/мес** (до 50% нагрузки)
@@ -629,12 +816,12 @@ def main():
             # Предупреждение при высоком DTI
             if debt_ratio > 0.4:
                 st.warning(f"""
-                ⚠️ **Внимание:** Ваша текущая долговая нагрузка уже {debt_ratio*100:.0f}%.  
+                **Внимание:** Ваша текущая долговая нагрузка уже {debt_ratio*100:.0f}%.  
                 Банки могут отказать или предложить меньшую сумму.
                 """)
         else:
             st.error("""
-            ❌ **Кредит недоступен**
+            **Кредит недоступен**
             
             Ваша текущая долговая нагрузка превышает 50% от дохода.  
             Рекомендуется сначала погасить часть существующих кредитов.
@@ -642,7 +829,7 @@ def main():
         
         # Интерпретация
         st.markdown("---")
-        st.markdown("#### 💡 Интерпретация")
+        st.markdown("#### Интерпретация")
         
         if prob_default < 0.1:
             st.success("""
@@ -671,7 +858,7 @@ def main():
             """)
         
         # Детали расчёта (expander)
-        with st.expander("🔬 Детали расчёта"):
+        with st.expander("Детали расчёта"):
             st.markdown("**Ваши данные:**")
             
             details_df = pd.DataFrame({
@@ -704,6 +891,7 @@ def main():
                     times_90_late
                 ]
             })
+            details_df['Значение'] = details_df['Значение'].astype(str)
             st.table(details_df)
             
             st.markdown(f"""
