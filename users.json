@@ -3,6 +3,14 @@
     {
       "login": "Mutylov",
       "password_hash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92"
+    },
+    {
+      "login": "Mutylov1",
+      "password_hash": "4eb2841a01e818fc01c369c18a7274a74485a32e7211e1977af0d9d6cc76a86f"
+    },
+    {
+      "login": "Nikita",
+      "password_hash": "6ccc5a4d4f3b83499f6ededfa95fa6369e6e05ee520380d983b0a94cb51b45ab"
     }
   ]
 }
